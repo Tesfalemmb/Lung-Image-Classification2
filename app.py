@@ -22,7 +22,7 @@ except ImportError:
     TENSORFLOW_AVAILABLE = False
     st.error("TensorFlow not available. Please check requirements.txt.")
 
-MODEL_PATH = "lung_classification_model_efficientnetb0.h5"
+MODEL_PATH = "lung2026_classification_model_efficientnetb0.h5"
 
 # -------------------------
 # Load Model
