@@ -100,26 +100,21 @@ def get_gradcam(img_array, model, class_index):
     if img_array.ndim == 3:
         img_array = np.expand_dims(img_array, axis=0)
 
-    # Find last convolutional layer
-    last_conv_layer = None
-    for layer in reversed(model.layers):
-        if "conv" in layer.name.lower():
-            last_conv_layer = layer.name
-            break
+    last_conv_layer = "top_conv"
 
-    if last_conv_layer is None:
-        return None
-
+    # Create grad model
     grad_model = tf.keras.models.Model(
-        inputs=model.inputs,
-        outputs=[model.get_layer(last_conv_layer).output, model.output]
+        inputs=model.input,
+        outputs=[
+            model.get_layer(last_conv_layer).output,
+            model.output
+        ]
     )
 
     with tf.GradientTape() as tape:
 
         conv_outputs, predictions = grad_model(img_array)
 
-        # Handle prediction shape safely
         if len(predictions.shape) == 1:
             loss = predictions[class_index]
         else:
@@ -127,14 +122,11 @@ def get_gradcam(img_array, model, class_index):
 
     grads = tape.gradient(loss, conv_outputs)
 
-    if grads is None:
-        return None
-
     pooled_grads = tf.reduce_mean(grads, axis=(0, 1, 2))
 
     conv_outputs = conv_outputs[0]
 
-    heatmap = tf.reduce_sum(tf.multiply(pooled_grads, conv_outputs), axis=-1)
+    heatmap = tf.reduce_sum(conv_outputs * pooled_grads, axis=-1)
 
     heatmap = np.maximum(heatmap, 0)
 
