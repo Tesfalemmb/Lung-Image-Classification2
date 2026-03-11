@@ -92,13 +92,18 @@ def preprocess_image(img: Image.Image):
 # Grad-CAM
 # -------------------------
 def get_gradcam(img_array, model, pred_class_index):
-    """Generate Grad-CAM heatmap"""
+    """Generate Grad-CAM heatmap with debugging"""
     try:
+        # Debug: Print model summary info
+        print(f"Model input shape: {model.input_shape}")
+        print(f"Model output shape: {model.output_shape}")
+        
         # Get the last convolutional layer
         last_conv_layer = None
-        for layer in reversed(model.layers):
+        for i, layer in enumerate(reversed(model.layers)):
             if isinstance(layer, tf.keras.layers.Conv2D):
                 last_conv_layer = layer
+                print(f"Found Conv2D layer: {layer.name}")
                 break
         
         if last_conv_layer is None:
@@ -111,20 +116,35 @@ def get_gradcam(img_array, model, pred_class_index):
             outputs=[last_conv_layer.output, model.output]
         )
         
+        print(f"Grad model outputs: {grad_model.outputs}")
+        
         # Record operations for gradient computation
         with tf.GradientTape() as tape:
             conv_outputs, predictions = grad_model(img_array)
             
-            # FIX: Check predictions shape here (after predictions is defined)
+            print(f"Predictions shape: {predictions.shape}")
+            print(f"Predictions value: {predictions.numpy()}")
+            
+            # Handle predictions based on shape
             if len(predictions.shape) == 1:
+                # Single output
                 pred_class = predictions[pred_class_index]
             elif predictions.shape[-1] > 1:
+                # Multiple outputs (classification)
                 pred_class = predictions[:, pred_class_index]
             else:
+                # Single output but with batch dimension
                 pred_class = predictions[:, 0]
+            
+            print(f"Selected class: {pred_class}")
         
         # Calculate gradients
         grads = tape.gradient(pred_class, conv_outputs)
+        print(f"Gradients shape: {grads.shape if grads is not None else 'None'}")
+        
+        if grads is None:
+            st.warning("Gradients are None - cannot generate Grad-CAM")
+            return None
         
         # Pool gradients
         pooled_grads = tf.reduce_mean(grads, axis=(0, 1, 2))
@@ -143,6 +163,9 @@ def get_gradcam(img_array, model, pred_class_index):
         
     except Exception as e:
         st.warning(f"Grad-CAM generation failed: {str(e)}")
+        print(f"Grad-CAM error details: {str(e)}")  # This will show in logs
+        import traceback
+        traceback.print_exc()  # Print full traceback
         return None
 
 
