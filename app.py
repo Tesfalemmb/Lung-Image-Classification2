@@ -91,82 +91,51 @@ def preprocess_image(img: Image.Image):
 # -------------------------
 # Grad-CAM
 # -------------------------
-def get_gradcam(img_array, model, pred_class_index):
-    """Generate Grad-CAM heatmap with debugging"""
-    try:
-        # Debug: Print model summary info
-        print(f"Model input shape: {model.input_shape}")
-        print(f"Model output shape: {model.output_shape}")
-        
-        # Get the last convolutional layer
-        last_conv_layer = None
-        for i, layer in enumerate(reversed(model.layers)):
-            if isinstance(layer, tf.keras.layers.Conv2D):
-                last_conv_layer = layer
-                print(f"Found Conv2D layer: {layer.name}")
-                break
-        
-        if last_conv_layer is None:
-            st.warning("No convolutional layer found for Grad-CAM")
-            return None
-        
-        # Create gradient model
-        grad_model = tf.keras.models.Model(
-            inputs=model.input,
-            outputs=[last_conv_layer.output, model.output]
-        )
-        
-        print(f"Grad model outputs: {grad_model.outputs}")
-        
-        # Record operations for gradient computation
-        with tf.GradientTape() as tape:
-            conv_outputs, predictions = grad_model(img_array)
-            
-            print(f"Predictions shape: {predictions.shape}")
-            print(f"Predictions value: {predictions.numpy()}")
-            
-            # Handle predictions based on shape
-            if len(predictions.shape) == 1:
-                # Single output
-                pred_class = predictions[pred_class_index]
-            elif predictions.shape[-1] > 1:
-                # Multiple outputs (classification)
-                pred_class = predictions[:, pred_class_index]
-            else:
-                # Single output but with batch dimension
-                pred_class = predictions[:, 0]
-            
-            print(f"Selected class: {pred_class}")
-        
-        # Calculate gradients
-        grads = tape.gradient(pred_class, conv_outputs)
-        print(f"Gradients shape: {grads.shape if grads is not None else 'None'}")
-        
-        if grads is None:
-            st.warning("Gradients are None - cannot generate Grad-CAM")
-            return None
-        
-        # Pool gradients
-        pooled_grads = tf.reduce_mean(grads, axis=(0, 1, 2))
-        
-        # Weight the conv outputs
-        conv_outputs = conv_outputs[0]
-        heatmap = tf.reduce_sum(
-            tf.multiply(pooled_grads, conv_outputs), axis=-1
-        )
-        
-        # Normalize heatmap
-        heatmap = tf.maximum(heatmap, 0) / tf.math.reduce_max(heatmap)
-        heatmap = heatmap.numpy()
-        
-        return heatmap
-        
-    except Exception as e:
-        st.warning(f"Grad-CAM generation failed: {str(e)}")
-        print(f"Grad-CAM error details: {str(e)}")  # This will show in logs
-        import traceback
-        traceback.print_exc()  # Print full traceback
+def get_gradcam(img_array, model, class_index):
+
+    import tensorflow as tf
+    import numpy as np
+
+    # Ensure batch dimension
+    if img_array.ndim == 3:
+        img_array = np.expand_dims(img_array, axis=0)
+
+    last_conv_layer = "top_conv"
+
+    grad_model = tf.keras.models.Model(
+        inputs=model.input,
+        outputs=[model.get_layer(last_conv_layer).output, model.output]
+    )
+
+    with tf.GradientTape() as tape:
+
+        conv_outputs, predictions = grad_model(img_array)
+
+        # Handle cases where predictions is a list/tuple
+        if isinstance(predictions, (list, tuple)):
+            predictions = predictions[0]
+
+        # Ensure tensor
+        predictions = tf.convert_to_tensor(predictions)
+
+        loss = predictions[:, class_index]
+
+    grads = tape.gradient(loss, conv_outputs)
+
+    if grads is None:
         return None
+
+    pooled_grads = tf.reduce_mean(grads, axis=(0, 1, 2))
+
+    conv_outputs = conv_outputs[0]
+
+    heatmap = tf.reduce_sum(conv_outputs * pooled_grads, axis=-1)
+
+    heatmap = np.maximum(heatmap, 0)
+
+    heatmap /= (np.max(heatmap) + 1e-8)
+
+    return heatmap.numpy()
 
 # -------------------------
 # Heatmap explanation
