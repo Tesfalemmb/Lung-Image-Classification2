@@ -168,7 +168,6 @@ def get_gradcam(img_array, model, pred_class_index):
         traceback.print_exc()  # Print full traceback
         return None
 
-
 # -------------------------
 # Heatmap explanation
 # -------------------------
