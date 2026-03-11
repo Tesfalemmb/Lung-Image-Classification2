@@ -93,15 +93,22 @@ def preprocess_image(img: Image.Image):
 # -------------------------
 def get_gradcam(img_array, model, class_index):
 
+    import tensorflow as tf
+    import numpy as np
+
+    # Ensure batch dimension
     if img_array.ndim == 3:
         img_array = np.expand_dims(img_array, axis=0)
 
+    # Find last convolutional layer
     last_conv_layer = None
-
     for layer in reversed(model.layers):
         if "conv" in layer.name.lower():
             last_conv_layer = layer.name
             break
+
+    if last_conv_layer is None:
+        return None
 
     grad_model = tf.keras.models.Model(
         inputs=model.inputs,
@@ -112,11 +119,18 @@ def get_gradcam(img_array, model, class_index):
 
         conv_outputs, predictions = grad_model(img_array)
 
-        loss = predictions[:, class_index]
+        # Handle prediction shape safely
+        if len(predictions.shape) == 1:
+            loss = predictions[class_index]
+        else:
+            loss = predictions[:, class_index]
 
     grads = tape.gradient(loss, conv_outputs)
 
-    pooled_grads = tf.reduce_mean(grads, axis=(0,1,2))
+    if grads is None:
+        return None
+
+    pooled_grads = tf.reduce_mean(grads, axis=(0, 1, 2))
 
     conv_outputs = conv_outputs[0]
 
