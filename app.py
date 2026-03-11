@@ -91,51 +91,59 @@ def preprocess_image(img: Image.Image):
 # -------------------------
 # Grad-CAM
 # -------------------------
-def get_gradcam(img_array, model, class_index):
-
-    import tensorflow as tf
-    import numpy as np
-
-    # Ensure batch dimension
-    if img_array.ndim == 3:
-        img_array = np.expand_dims(img_array, axis=0)
-
-    last_conv_layer = "top_conv"
-
-    grad_model = tf.keras.models.Model(
-        inputs=model.input,
-        outputs=[model.get_layer(last_conv_layer).output, model.output]
-    )
-
-    with tf.GradientTape() as tape:
-
-        conv_outputs, predictions = grad_model(img_array)
-
-        # Handle cases where predictions is a list/tuple
-        if isinstance(predictions, (list, tuple)):
-            predictions = predictions[0]
-
-        # Ensure tensor
-        predictions = tf.convert_to_tensor(predictions)
-
-        loss = predictions[:, class_index]
-
-    grads = tape.gradient(loss, conv_outputs)
-
-    if grads is None:
+def get_gradcam(img_array, model, pred_class_index):
+    """Generate Grad-CAM heatmap"""
+    try:
+        # Get the last convolutional layer
+        last_conv_layer = None
+        for layer in reversed(model.layers):
+            if isinstance(layer, tf.keras.layers.Conv2D):
+                last_conv_layer = layer
+                break
+        
+        if last_conv_layer is None:
+            st.warning("No convolutional layer found for Grad-CAM")
+            return None
+        
+        # Create gradient model
+        grad_model = tf.keras.models.Model(
+            inputs=model.input,
+            outputs=[last_conv_layer.output, model.output]
+        )
+        
+        # Record operations for gradient computation
+        with tf.GradientTape() as tape:
+            conv_outputs, predictions = grad_model(img_array)
+            
+            # FIX: Check predictions shape here (after predictions is defined)
+            if len(predictions.shape) == 1:
+                pred_class = predictions[pred_class_index]
+            elif predictions.shape[-1] > 1:
+                pred_class = predictions[:, pred_class_index]
+            else:
+                pred_class = predictions[:, 0]
+        
+        # Calculate gradients
+        grads = tape.gradient(pred_class, conv_outputs)
+        
+        # Pool gradients
+        pooled_grads = tf.reduce_mean(grads, axis=(0, 1, 2))
+        
+        # Weight the conv outputs
+        conv_outputs = conv_outputs[0]
+        heatmap = tf.reduce_sum(
+            tf.multiply(pooled_grads, conv_outputs), axis=-1
+        )
+        
+        # Normalize heatmap
+        heatmap = tf.maximum(heatmap, 0) / tf.math.reduce_max(heatmap)
+        heatmap = heatmap.numpy()
+        
+        return heatmap
+        
+    except Exception as e:
+        st.warning(f"Grad-CAM generation failed: {str(e)}")
         return None
-
-    pooled_grads = tf.reduce_mean(grads, axis=(0, 1, 2))
-
-    conv_outputs = conv_outputs[0]
-
-    heatmap = tf.reduce_sum(conv_outputs * pooled_grads, axis=-1)
-
-    heatmap = np.maximum(heatmap, 0)
-
-    heatmap /= (np.max(heatmap) + 1e-8)
-
-    return heatmap.numpy()
 
 
 # -------------------------
