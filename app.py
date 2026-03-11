@@ -102,25 +102,28 @@ def get_gradcam(img_array, model, class_index):
 
     last_conv_layer = "top_conv"
 
-    # Create grad model
     grad_model = tf.keras.models.Model(
         inputs=model.input,
-        outputs=[
-            model.get_layer(last_conv_layer).output,
-            model.output
-        ]
+        outputs=[model.get_layer(last_conv_layer).output, model.output]
     )
 
     with tf.GradientTape() as tape:
 
         conv_outputs, predictions = grad_model(img_array)
 
-        if len(predictions.shape) == 1:
-            loss = predictions[class_index]
-        else:
-            loss = predictions[:, class_index]
+        # Handle cases where predictions is a list/tuple
+        if isinstance(predictions, (list, tuple)):
+            predictions = predictions[0]
+
+        # Ensure tensor
+        predictions = tf.convert_to_tensor(predictions)
+
+        loss = predictions[:, class_index]
 
     grads = tape.gradient(loss, conv_outputs)
+
+    if grads is None:
+        return None
 
     pooled_grads = tf.reduce_mean(grads, axis=(0, 1, 2))
 
@@ -132,7 +135,7 @@ def get_gradcam(img_array, model, class_index):
 
     heatmap /= (np.max(heatmap) + 1e-8)
 
-    return heatmap
+    return heatmap.numpy()
 
 
 # -------------------------
